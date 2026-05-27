@@ -1,0 +1,175 @@
+<?php
+// Подключение к БД
+$host = 'localhost';
+$dbname = 'u82626';
+$username = 'u82626';
+$password = '3265353';
+
+$errors = [];
+$old_data = [];
+
+// Список допустимых языков
+$valid_languages = ['Pascal', 'C', 'C++', 'JavaScript', 'PHP', 'Python', 'Java', 'Haskell', 'Clojure', 'Prolog', 'Scala', 'Go'];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Собираем данные
+    $full_name = trim($_POST['full_name'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $birthdate = $_POST['birthdate'] ?? '';
+    $gender = $_POST['gender'] ?? '';
+    $languages = $_POST['languages'] ?? [];
+    $biography = trim($_POST['biography'] ?? '');
+    $contract_accepted = isset($_POST['contract_accepted']) ? 1 : 0;
+    
+    // Сохраняем введённые данные для возврата в форму
+    $old_data = [
+        'full_name' => $full_name,
+        'phone' => $phone,
+        'email' => $email,
+        'birthdate' => $birthdate,
+        'gender' => $gender,
+        'languages' => $languages,
+        'biography' => $biography,
+        'contract_accepted' => $contract_accepted
+    ];
+    
+    // 1. Валидация ФИО
+    if (empty($full_name)) {
+        $errors[] = 'ФИО обязательно для заполнения';
+    } elseif (strlen($full_name) > 150) {
+        $errors[] = 'ФИО не должно превышать 150 символов';
+    } elseif (!preg_match('/^[a-zA-Zа-яА-ЯёЁ\s\-]+$/u', $full_name)) {
+        $errors[] = 'ФИО может содержать только буквы, пробелы и дефисы';
+    }
+    
+    // 2. Валидация телефона
+    if (empty($phone)) {
+        $errors[] = 'Телефон обязателен для заполнения';
+    } elseif (!preg_match('/^[\+\d\s\(\)\-]{10,20}$/', $phone)) {
+        $errors[] = 'Введите корректный номер телефона';
+    }
+    
+    // 3. Валидация email
+    if (empty($email)) {
+        $errors[] = 'E-mail обязателен для заполнения';
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $errors[] = 'Введите корректный e-mail адрес';
+    }
+    
+    // 4. Валидация даты рождения
+    if (empty($birthdate)) {
+        $errors[] = 'Дата рождения обязательна';
+    } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $birthdate)) {
+        $errors[] = 'Неверный формат даты';
+    } else {
+        $birth_timestamp = strtotime($birthdate);
+        $min_date = strtotime('1900-01-01');
+        $max_date = strtotime('now');
+        if ($birth_timestamp < $min_date || $birth_timestamp > $max_date) {
+            $errors[] = 'Дата рождения должна быть между 01.01.1900 и сегодня';
+        }
+    }
+    
+    // 5. Валидация пола
+    $allowed_genders = ['male', 'female', 'other'];
+    if (empty($gender)) {
+        $errors[] = 'Пол обязателен для выбора';
+    } elseif (!in_array($gender, $allowed_genders)) {
+        $errors[] = 'Выберите корректный пол';
+    }
+    
+    // 6. Валидация языков
+    if (empty($languages)) {
+        $errors[] = 'Выберите хотя бы один язык программирования';
+    } else {
+        foreach ($languages as $lang) {
+            if (!in_array($lang, $valid_languages)) {
+                $errors[] = "Недопустимый язык программирования: $lang";
+                break;
+            }
+        }
+    }
+    
+    // 7. Биография
+    if (strlen($biography) > 5000) {
+        $errors[] = 'Биография не должна превышать 5000 символов';
+    }
+    
+    // 8. Контракт
+    if ($contract_accepted !== 1) {
+        $errors[] = 'Вы должны подтвердить ознакомление с контрактом';
+    }
+    
+    // Если ошибок нет — сохраняем в БД
+    if (empty($errors)) {
+        try {
+            $dsn = "mysql:host=$host;dbname=$dbname;charset=utf8mb4";
+            $pdo = new PDO($dsn, $username, $password);
+            $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            
+            // Начинаем транзакцию
+            $pdo->beginTransaction();
+            
+            // Подготовленный запрос для вставки в application
+            $sql = "INSERT INTO application (full_name, phone, email, birthdate, gender, biography, contract_accepted) 
+                    VALUES (:full_name, :phone, :email, :birthdate, :gender, :biography, :contract_accepted)";
+            
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([
+                ':full_name' => $full_name,
+                ':phone' => $phone,
+                ':email' => $email,
+                ':birthdate' => $birthdate,
+                ':gender' => $gender,
+                ':biography' => $biography,
+                ':contract_accepted' => $contract_accepted
+            ]);
+            
+            // Получаем ID последней вставленной записи
+            $application_id = $pdo->lastInsertId();
+            
+            // Получаем ID языков из справочника и вставляем связи
+            $lang_sql = "SELECT id, name FROM programming_language WHERE name = :name";
+            $lang_stmt = $pdo->prepare($lang_sql);
+            
+            $insert_link_sql = "INSERT INTO application_language (application_id, language_id) VALUES (:app_id, :lang_id)";
+            $insert_link_stmt = $pdo->prepare($insert_link_sql);
+            
+            foreach ($languages as $lang_name) {
+                $lang_stmt->execute([':name' => $lang_name]);
+                $lang_row = $lang_stmt->fetch(PDO::FETCH_ASSOC);
+                if ($lang_row) {
+                    $insert_link_stmt->execute([
+                        ':app_id' => $application_id,
+                        ':lang_id' => $lang_row['id']
+                    ]);
+                }
+            }
+            
+            // Подтверждаем транзакцию
+            $pdo->commit();
+            
+            // Перенаправляем на index.php с сообщением об успехе
+            header('Location: index.php?success=' . urlencode('Данные успешно сохранены!'));
+            exit;
+            
+        } catch (PDOException $e) {
+            // Откат транзакции при ошибке
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $errors[] = 'Ошибка базы данных: ' . $e->getMessage();
+        }
+    }
+    
+    // Если есть ошибки — возвращаем на форму
+    $errors_string = implode('|', $errors);
+    $old_data_encoded = urlencode(json_encode($old_data));
+    header("Location: index.php?errors=$errors_string&old=$old_data_encoded");
+    exit;
+} else {
+    header('Location: index.php');
+    exit;
+}
+?>
