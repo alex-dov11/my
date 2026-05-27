@@ -1,0 +1,3 @@
+SELECT pl.name FROM application_language al
+JOIN programming_language pl ON al.language_id = pl.id
+WHERE al.application_id = (SELECT MAX(id) FROM application);
