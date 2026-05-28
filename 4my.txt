@@ -1,0 +1,336 @@
+<?php
+// Загружаем сохранённые данные из Cookies (если есть)
+$saved_data = [];
+if (isset($_COOKIE['user_data'])) {
+    $saved_data = json_decode($_COOKIE['user_data'], true) ?: [];
+}
+
+// Загружаем ошибки из Cookies (если есть) и удаляем их после чтения
+$errors = [];
+if (isset($_COOKIE['form_errors'])) {
+    $errors = json_decode($_COOKIE['form_errors'], true) ?: [];
+    setcookie('form_errors', '', time() - 3600, '/');
+}
+
+// Данные из GET (если форма вернулась с ошибками)
+$old_data = isset($_GET['old']) ? json_decode(urldecode($_GET['old']), true) : [];
+
+// Если есть сохранённые из Cookies и нет старых данных из GET — используем Cookies
+if (empty($old_data) && !empty($saved_data)) {
+    $old_data = $saved_data;
+}
+
+// Сообщение об успехе
+$success_message = $_GET['success'] ?? '';
+
+// Список языков
+$languages = ['Pascal', 'C', 'C++', 'JavaScript', 'PHP', 'Python', 'Java', 'Haskell', 'Clojure', 'Prolog', 'Scala', 'Go'];
+?>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анкета разработчика — задание 4</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .form-container {
+            padding: 40px;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .required:after {
+            content: " *";
+            color: red;
+        }
+        
+        input[type="text"],
+        input[type="tel"],
+        input[type="email"],
+        input[type="date"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        input.error, textarea.error, select.error {
+            border-color: #c33;
+            background-color: #ffe8e8;
+        }
+        
+        .field-error {
+            color: #c33;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        
+        .radio-group {
+            display: flex;
+            gap: 20px;
+            margin-top: 8px;
+        }
+        
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: normal;
+            margin-bottom: 0;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .checkbox-group input {
+            width: auto;
+        }
+        
+        .checkbox-group label {
+            margin-bottom: 0;
+            font-weight: normal;
+        }
+        
+        select[multiple] {
+            height: 150px;
+        }
+        
+        .global-error-message {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #c33;
+        }
+        
+        .global-error-message ul {
+            margin-left: 20px;
+        }
+        
+        .success-message {
+            background: #efe;
+            color: #3c3;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #3c3;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 14px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        small {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📝 Анкета разработчика — Задание 4</h1>
+            <p>Заполните форму (данные сохраняются в Cookies на год)</p>
+        </div>
+        
+        <div class="form-container">
+            <?php if ($success_message): ?>
+                <div class="success-message">
+                    ✅ <?php echo htmlspecialchars($success_message); ?>
+                </div>
+            <?php endif; ?>
+            
+            <?php if (!empty($errors) && isset($errors['global'])): ?>
+                <div class="global-error-message">
+                    <strong>⚠️ Пожалуйста, исправьте следующие ошибки:</strong>
+                    <ul>
+                        <?php foreach ($errors['global'] as $error): ?>
+                            <li><?php echo htmlspecialchars($error); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+            
+            <form action="save.php" method="POST">
+                <div class="form-group">
+                    <label class="required">ФИО</label>
+                    <input type="text" name="full_name" 
+                           class="<?php echo isset($errors['full_name']) ? 'error' : ''; ?>"
+                           value="<?php echo htmlspecialchars($old_data['full_name'] ?? ''); ?>" 
+                           placeholder="Иванов Иван Иванович">
+                    <?php if (isset($errors['full_name'])): ?>
+                        <div class="field-error"><?php echo htmlspecialchars($errors['full_name']); ?></div>
+                    <?php endif; ?>
+                    <small>Только буквы, пробелы и дефисы, до 150 символов</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="required">Телефон</label>
+                    <input type="tel" name="phone" 
+                           class="<?php echo isset($errors['phone']) ? 'error' : ''; ?>"
+                           value="<?php echo htmlspecialchars($old_data['phone'] ?? ''); ?>" 
+                           placeholder="+7 (123) 456-78-90">
+                    <?php if (isset($errors['phone'])): ?>
+                        <div class="field-error"><?php echo htmlspecialchars($errors['phone']); ?></div>
+                    <?php endif; ?>
+                    <small>Формат: +7, цифры, пробелы, скобки, дефисы (10-20 символов)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="required">E-mail</label>
+                    <input type="email" name="email" 
+                           class="<?php echo isset($errors['email']) ? 'error' : ''; ?>"
+                           value="<?php echo htmlspecialchars($old_data['email'] ?? ''); ?>" 
+                           placeholder="ivanov@example.com">
+                    <?php if (isset($errors['email'])): ?>
+                        <div class="field-error"><?php echo htmlspecialchars($errors['email']); ?></div>
+                    <?php endif; ?>
+                    <small>example@domain.com</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="required">Дата рождения</label>
+                    <input type="date" name="birthdate" 
+                           class="<?php echo isset($errors['birthdate']) ? 'error' : ''; ?>"
+                           value="<?php echo htmlspecialchars($old_data['birthdate'] ?? ''); ?>">
+                    <?php if (isset($errors['birthdate'])): ?>
+                        <div class="field-error"><?php echo htmlspecialchars($errors['birthdate']); ?></div>
+                    <?php endif; ?>
+                    <small>Формат: ГГГГ-ММ-ДД, от 1900 до сегодня</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="required">Пол</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="gender" value="male" <?php echo (($old_data['gender'] ?? '') == 'male') ? 'checked' : ''; ?>> Мужской</label>
+                        <label><input type="radio" name="gender" value="female" <?php echo (($old_data['gender'] ?? '') == 'female') ? 'checked' : ''; ?>> Женский</label>
+                        <label><input type="radio" name="gender" value="other" <?php echo (($old_data['gender'] ?? '') == 'other') ? 'checked' : ''; ?>> Другой</label>
+                    </div>
+                    <?php if (isset($errors['gender'])): ?>
+                        <div class="field-error"><?php echo htmlspecialchars($errors['gender']); ?></div>
+                    <?php endif; ?>
+                </div>
+                
+                <div class="form-group">
+                    <label class="required">Любимый язык программирования</label>
+                    <select name="languages[]" multiple="multiple"
+                            class="<?php echo isset($errors['languages']) ? 'error' : ''; ?>">
+                        <?php foreach ($languages as $lang): ?>
+                            <option value="<?php echo $lang; ?>" 
+                                <?php echo (isset($old_data['languages']) && in_array($lang, $old_data['languages'])) ? 'selected' : ''; ?>>
+                                <?php echo $lang; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <?php if (isset($errors['languages'])): ?>
+                        <div class="field-error"><?php echo htmlspecialchars($errors['languages']); ?></div>
+                    <?php endif; ?>
+                    <small>Удерживайте Ctrl (Cmd) для выбора нескольких</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Биография</label>
+                    <textarea name="biography" 
+                              class="<?php echo isset($errors['biography']) ? 'error' : ''; ?>"
+                              placeholder="Расскажите немного о себе..."><?php echo htmlspecialchars($old_data['biography'] ?? ''); ?></textarea>
+                    <?php if (isset($errors['biography'])): ?>
+                        <div class="field-error"><?php echo htmlspecialchars($errors['biography']); ?></div>
+                    <?php endif; ?>
+                    <small>Не более 5000 символов</small>
+                </div>
+                
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" name="contract_accepted" value="1" 
+                               <?php echo (($old_data['contract_accepted'] ?? '') == '1') ? 'checked' : ''; ?>>
+                        <label class="required">Я ознакомлен(а) с условиями контракта</label>
+                    </div>
+                    <?php if (isset($errors['contract_accepted'])): ?>
+                        <div class="field-error"><?php echo htmlspecialchars($errors['contract_accepted']); ?></div>
+                    <?php endif; ?>
+                </div>
+                
+                <button type="submit">💾 Сохранить</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,182 @@
+<?php
+$host = 'localhost';
+$dbname = 'u82626';
+$username = 'u82626';
+$password = '3265353';
+
+$errors = [];
+$old_data = [];
+
+$valid_languages = ['Pascal', 'C', 'C++', 'JavaScript', 'PHP', 'Python', 'Java', 'Haskell', 'Clojure', 'Prolog', 'Scala', 'Go'];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $full_name = trim($_POST['full_name'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $birthdate = $_POST['birthdate'] ?? '';
+    $gender = $_POST['gender'] ?? '';
+    $languages = $_POST['languages'] ?? [];
+    $biography = trim($_POST['biography'] ?? '');
+    $contract_accepted = isset($_POST['contract_accepted']) ? 1 : 0;
+    
+    $old_data = [
+        'full_name' => $full_name,
+        'phone' => $phone,
+        'email' => $email,
+        'birthdate' => $birthdate,
+        'gender' => $gender,
+        'languages' => $languages,
+        'biography' => $biography,
+        'contract_accepted' => $contract_accepted
+    ];
+    
+    if (empty($full_name)) {
+        $errors['full_name'] = 'ФИО обязательно для заполнения';
+        $errors['global'][] = 'ФИО обязательно для заполнения';
+    } elseif (strlen($full_name) > 150) {
+        $errors['full_name'] = 'ФИО не должно превышать 150 символов';
+        $errors['global'][] = 'ФИО не должно превышать 150 символов';
+    } elseif (!preg_match('/^[a-zA-Zа-яА-ЯёЁ\s\-]+$/u', $full_name)) {
+        $errors['full_name'] = 'ФИО может содержать только буквы, пробелы и дефисы';
+        $errors['global'][] = 'ФИО может содержать только буквы, пробелы и дефисы';
+    }
+    
+    if (empty($phone)) {
+        $errors['phone'] = 'Телефон обязателен для заполнения';
+        $errors['global'][] = 'Телефон обязателен для заполнения';
+    } elseif (!preg_match('/^[\+\d\s\(\)\-]{10,20}$/', $phone)) {
+        $errors['phone'] = 'Введите корректный номер телефона (только цифры, +, пробелы, скобки, дефисы, 10-20 символов)';
+        $errors['global'][] = 'Введите корректный номер телефона';
+    }
+    
+    if (empty($email)) {
+        $errors['email'] = 'E-mail обязателен для заполнения';
+        $errors['global'][] = 'E-mail обязателен для заполнения';
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $errors['email'] = 'Введите корректный e-mail адрес (например, user@example.com)';
+        $errors['global'][] = 'Введите корректный e-mail адрес';
+    }
+    
+    if (empty($birthdate)) {
+        $errors['birthdate'] = 'Дата рождения обязательна';
+        $errors['global'][] = 'Дата рождения обязательна';
+    } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $birthdate)) {
+        $errors['birthdate'] = 'Неверный формат даты (ГГГГ-ММ-ДД)';
+        $errors['global'][] = 'Неверный формат даты';
+    } else {
+        $birth_timestamp = strtotime($birthdate);
+        $min_date = strtotime('1900-01-01');
+        $max_date = strtotime('now');
+        if ($birth_timestamp < $min_date || $birth_timestamp > $max_date) {
+            $errors['birthdate'] = 'Дата рождения должна быть между 01.01.1900 и сегодня';
+            $errors['global'][] = 'Дата рождения должна быть между 01.01.1900 и сегодня';
+        }
+    }
+    
+    $allowed_genders = ['male', 'female', 'other'];
+    if (empty($gender)) {
+        $errors['gender'] = 'Пол обязателен для выбора';
+        $errors['global'][] = 'Пол обязателен для выбора';
+    } elseif (!in_array($gender, $allowed_genders)) {
+        $errors['gender'] = 'Выберите корректный пол';
+        $errors['global'][] = 'Выберите корректный пол';
+    }
+    
+    if (empty($languages)) {
+        $errors['languages'] = 'Выберите хотя бы один язык программирования';
+        $errors['global'][] = 'Выберите хотя бы один язык программирования';
+    } else {
+        foreach ($languages as $lang) {
+            if (!in_array($lang, $valid_languages)) {
+                $errors['languages'] = "Недопустимый язык программирования: $lang";
+                $errors['global'][] = "Недопустимый язык программирования: $lang";
+                break;
+            }
+        }
+    }
+    
+    if (strlen($biography) > 5000) {
+        $errors['biography'] = 'Биография не должна превышать 5000 символов';
+        $errors['global'][] = 'Биография не должна превышать 5000 символов';
+    }
+    
+    if ($contract_accepted !== 1) {
+        $errors['contract_accepted'] = 'Вы должны подтвердить ознакомление с контрактом';
+        $errors['global'][] = 'Вы должны подтвердить ознакомление с контрактом';
+    }
+    
+    if (empty($errors)) {
+        try {
+            $dsn = "mysql:host=$host;dbname=$dbname;charset=utf8mb4";
+            $pdo = new PDO($dsn, $username, $password);
+            $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            
+            $pdo->beginTransaction();
+            
+            $sql = "INSERT INTO application (full_name, phone, email, birthdate, gender, biography, contract_accepted) 
+                    VALUES (:full_name, :phone, :email, :birthdate, :gender, :biography, :contract_accepted)";
+            
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([
+                ':full_name' => $full_name,
+                ':phone' => $phone,
+                ':email' => $email,
+                ':birthdate' => $birthdate,
+                ':gender' => $gender,
+                ':biography' => $biography,
+                ':contract_accepted' => $contract_accepted
+            ]);
+            
+            $application_id = $pdo->lastInsertId();
+            
+            $lang_sql = "SELECT id, name FROM programming_language WHERE name = :name";
+            $lang_stmt = $pdo->prepare($lang_sql);
+            
+            $insert_link_sql = "INSERT INTO application_language (application_id, language_id) VALUES (:app_id, :lang_id)";
+            $insert_link_stmt = $pdo->prepare($insert_link_sql);
+            
+            foreach ($languages as $lang_name) {
+                $lang_stmt->execute([':name' => $lang_name]);
+                $lang_row = $lang_stmt->fetch(PDO::FETCH_ASSOC);
+                if ($lang_row) {
+                    $insert_link_stmt->execute([
+                        ':app_id' => $application_id,
+                        ':lang_id' => $lang_row['id']
+                    ]);
+                }
+            }
+            
+            $pdo->commit();
+            
+            $cookie_data = [
+                'full_name' => $full_name,
+                'phone' => $phone,
+                'email' => $email,
+                'birthdate' => $birthdate,
+                'gender' => $gender,
+                'languages' => $languages,
+                'biography' => $biography,
+                'contract_accepted' => $contract_accepted
+            ];
+            setcookie('user_data', json_encode($cookie_data), time() + 365 * 24 * 3600, '/');
+            
+            header('Location: index.php?success=' . urlencode('Данные успешно сохранены! Они запомнены в Cookies на год.'));
+            exit;
+            
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $errors['global'][] = 'Ошибка базы данных: ' . $e->getMessage();
+        }
+    }
+    
+    setcookie('form_errors', json_encode($errors), time() + 3600, '/');
+    $old_data_encoded = urlencode(json_encode($old_data));
+    header("Location: index.php?old=$old_data_encoded");
+    exit;
+} else {
+    header('Location: index.php');
+    exit;
+}
+?>
