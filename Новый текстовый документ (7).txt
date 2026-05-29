@@ -1,0 +1,2 @@
+USE u82626;
+UPDATE admin SET password_hash = '$2y$10$LiEnstesOOCKD32aQVKv9urWpLD1obfcJvfVh2oXVEUqOwDe3HrAq' WHERE login = 'admin';
