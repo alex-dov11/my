@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS `user` (
+    id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+    login VARCHAR(50) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    application_id INT(10) UNSIGNED NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    FOREIGN KEY (application_id) REFERENCES application(id) ON DELETE CASCADE
+);
