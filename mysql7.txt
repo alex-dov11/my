@@ -1,0 +1,1 @@
+mysql -uu82626 -p3265353 -e "SELECT * FROM u82626.admin;"
