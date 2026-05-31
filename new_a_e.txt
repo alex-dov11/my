@@ -1,0 +1,174 @@
+<?php
+require_once 'config.php';
+
+// HTTP-авторизация
+$auth_ok = false;
+if (isset($_SERVER['PHP_AUTH_USER']) && isset($_SERVER['PHP_AUTH_PW'])) {
+    $stmt = $pdo->prepare("SELECT password_hash FROM admin WHERE login = ?");
+    $stmt->execute([$_SERVER['PHP_AUTH_USER']]);
+    $admin = $stmt->fetch();
+    if ($admin && password_verify($_SERVER['PHP_AUTH_PW'], $admin['password_hash'])) {
+        $auth_ok = true;
+    }
+}
+
+if (!$auth_ok) {
+    header('WWW-Authenticate: Basic realm="Admin Panel"');
+    header('HTTP/1.0 401 Unauthorized');
+    echo 'Авторизация не пройдена';
+    exit;
+}
+
+// Получаем ID из GET
+if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
+    die('Ошибка: ID записи не передан или некорректен.');
+}
+$id = (int)$_GET['id'];
+
+// Загружаем данные заявки
+$stmt = $pdo->prepare("SELECT * FROM application WHERE id = ?");
+$stmt->execute([$id]);
+$application = $stmt->fetch();
+
+if (!$application) {
+    die("Запись с ID = $id не найдена в базе данных.");
+}
+
+// Загружаем выбранные языки
+$stmt = $pdo->prepare("
+    SELECT pl.name FROM application_language al
+    JOIN programming_language pl ON al.language_id = pl.id
+    WHERE al.application_id = ?
+");
+$stmt->execute([$id]);
+$selected_languages = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+$languages = ['Pascal', 'C', 'C++', 'JavaScript', 'PHP', 'Python', 'Java', 'Haskell', 'Clojure', 'Prolog', 'Scala', 'Go'];
+$error = '';
+
+// Обработка сохранения
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die('CSRF атака!');
+    }
+
+    $full_name = trim($_POST['full_name'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $birthdate = $_POST['birthdate'] ?? '';
+    $gender = $_POST['gender'] ?? '';
+    $languages_post = $_POST['languages'] ?? [];
+    $biography = trim($_POST['biography'] ?? '');
+    $contract_accepted = isset($_POST['contract_accepted']) ? 1 : 0;
+
+    $errors = [];
+
+    if (empty($full_name)) $errors[] = 'ФИО обязательно';
+    elseif (strlen($full_name) > 150) $errors[] = 'ФИО не более 150 символов';
+    elseif (!preg_match('/^[a-zA-Zа-яА-ЯёЁ\s\-]+$/u', $full_name)) $errors[] = 'ФИО: только буквы, пробелы, дефисы';
+
+    if (empty($phone)) $errors[] = 'Телефон обязателен';
+    elseif (!preg_match('/^[\+\d\s\(\)\-]{10,20}$/', $phone)) $errors[] = 'Некорректный телефон';
+
+    if (empty($email)) $errors[] = 'Email обязателен';
+    elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = 'Некорректный email';
+
+    if (empty($birthdate)) $errors[] = 'Дата рождения обязательна';
+    else {
+        $ts = strtotime($birthdate);
+        if ($ts < strtotime('1900-01-01') || $ts > time()) $errors[] = 'Дата от 1900 до сегодня';
+    }
+
+    if (!in_array($gender, ['male', 'female', 'other'])) $errors[] = 'Выберите пол';
+
+    if (empty($languages_post)) $errors[] = 'Выберите хотя бы один язык';
+    else {
+        foreach ($languages_post as $lang) {
+            if (!in_array($lang, $languages)) {
+                $errors[] = "Недопустимый язык: $lang";
+                break;
+            }
+        }
+    }
+
+    if (strlen($biography) > 5000) $errors[] = 'Биография не более 5000 символов';
+    if (!$contract_accepted) $errors[] = 'Подтвердите контракт';
+
+    if (empty($errors)) {
+        try {
+            $pdo->beginTransaction();
+
+            $stmt = $pdo->prepare("
+                UPDATE application SET 
+                full_name = ?, phone = ?, email = ?, birthdate = ?, 
+                gender = ?, biography = ?, contract_accepted = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([$full_name, $phone, $email, $birthdate, $gender, $biography, $contract_accepted, $id]);
+
+            $pdo->prepare("DELETE FROM application_language WHERE application_id = ?")->execute([$id]);
+
+            $lang_stmt = $pdo->prepare("SELECT id FROM programming_language WHERE name = ?");
+            $insert_stmt = $pdo->prepare("INSERT INTO application_language (application_id, language_id) VALUES (?, ?)");
+
+            foreach ($languages_post as $lang_name) {
+                $lang_stmt->execute([$lang_name]);
+                $lang_id = $lang_stmt->fetchColumn();
+                if ($lang_id) $insert_stmt->execute([$id, $lang_id]);
+            }
+
+            $pdo->commit();
+            header('Location: admin.php?msg=' . urlencode("Заявка #$id обновлена"));
+            exit;
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $error = 'Ошибка БД: ' . $e->getMessage();
+        }
+    } else {
+        $error = implode('<br>', $errors);
+    }
+}
+?>
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Редактирование</title>
+<style>
+    body { font-family: sans-serif; padding: 20px; }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; font-weight: bold; }
+    input, select, textarea { width: 100%; padding: 8px; }
+    button { padding: 10px 20px; background: #667eea; color: white; border: none; cursor: pointer; }
+    .error { color: red; background: #fee; padding: 10px; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<h1>✏️ Редактирование заявки #<?php echo $id; ?></h1>
+<?php if ($error): ?><div class="error"><?php echo $error; ?></div><?php endif; ?>
+<form method="POST">
+    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+    <div class="form-group"><label>ФИО</label><input type="text" name="full_name" value="<?php echo htmlspecialchars($application['full_name']); ?>"></div>
+    <div class="form-group"><label>Телефон</label><input type="text" name="phone" value="<?php echo htmlspecialchars($application['phone']); ?>"></div>
+    <div class="form-group"><label>Email</label><input type="email" name="email" value="<?php echo htmlspecialchars($application['email']); ?>"></div>
+    <div class="form-group"><label>Дата рождения</label><input type="date" name="birthdate" value="<?php echo htmlspecialchars($application['birthdate']); ?>"></div>
+    <div class="form-group"><label>Пол</label>
+        <label><input type="radio" name="gender" value="male" <?php echo $application['gender'] == 'male' ? 'checked' : ''; ?>> Мужской</label>
+        <label><input type="radio" name="gender" value="female" <?php echo $application['gender'] == 'female' ? 'checked' : ''; ?>> Женский</label>
+        <label><input type="radio" name="gender" value="other" <?php echo $application['gender'] == 'other' ? 'checked' : ''; ?>> Другой</label>
+    </div>
+    <div class="form-group"><label>Языки</label>
+        <select name="languages[]" multiple>
+            <?php foreach ($languages as $lang): ?>
+                <option value="<?php echo $lang; ?>" <?php echo in_array($lang, $selected_languages) ? 'selected' : ''; ?>><?php echo $lang; ?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <div class="form-group"><label>Биография</label><textarea name="biography"><?php echo htmlspecialchars($application['biography']); ?></textarea></div>
+    <div class="form-group">
+        <label><input type="checkbox" name="contract_accepted" value="1" <?php echo $application['contract_accepted'] ? 'checked' : ''; ?>> Я ознакомлен с контрактом</label>
+    </div>
+    <button type="submit">Сохранить</button>
+</form>
+<br>
+<a href="admin.php">← Назад</a>
+</body>
+</html>
