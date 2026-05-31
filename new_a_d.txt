@@ -1,0 +1,45 @@
+<?php
+require_once 'config.php';
+
+$auth_ok = false;
+if (isset($_SERVER['PHP_AUTH_USER']) && isset($_SERVER['PHP_AUTH_PW'])) {
+    $stmt = $pdo->prepare("SELECT password_hash FROM admin WHERE login = ?");
+    $stmt->execute([$_SERVER['PHP_AUTH_USER']]);
+    $admin = $stmt->fetch();
+    if ($admin && password_verify($_SERVER['PHP_AUTH_PW'], $admin['password_hash'])) {
+        $auth_ok = true;
+    }
+}
+
+if (!$auth_ok) {
+    header('WWW-Authenticate: Basic realm="Admin Panel"');
+    header('HTTP/1.0 401 Unauthorized');
+    echo 'Авторизация не пройдена';
+    exit;
+}
+
+if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
+    die('Ошибка: ID записи не передан или некорректен.');
+}
+
+$id = (int)$_GET['id'];
+
+try {
+    // Проверяем, существует ли запись с таким ID
+    $stmt = $pdo->prepare("SELECT id FROM application WHERE id = ?");
+    $stmt->execute([$id]);
+    if (!$stmt->fetch()) {
+        die("Запись с ID = $id не найдена в базе данных.");
+    }
+
+    // Удаляем запись
+    $stmt = $pdo->prepare("DELETE FROM application WHERE id = ?");
+    $stmt->execute([$id]);
+
+    header('Location: admin.php?msg=' . urlencode("Заявка #$id успешно удалена"));
+    exit;
+
+} catch (PDOException $e) {
+    die("Ошибка базы данных: " . $e->getMessage());
+}
+?>
